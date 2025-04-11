@@ -71,7 +71,7 @@ public class BookMyMoviesSystem {
     public void bookTicket(int userId, int showId, List<String> selectedSeats){
         try{
             Connection conn = DatabaseConfig.getConnection();
-            conn.setAutoCommit(false); //transaction pura hoga ya toh nhi hoga, partial statements execute nhi honge
+            conn.setAutoCommit(false); //transaction pura hoga ya toh bilkul nhi hoga, partial statements execute nhi honge
 
             //check if the selectedSeats are available
             boolean selectedSeatsAreAvailable = true;
