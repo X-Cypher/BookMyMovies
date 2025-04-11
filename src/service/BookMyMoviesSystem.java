@@ -9,43 +9,105 @@ import java.util.Scanner;
 public class BookMyMoviesSystem {
     Scanner sc = new Scanner(System.in);
 
-    public void displayMovies(){
+    public int displayMovies(String city){
         try{
-            String query = "select * from movies";
-            Connection conn = DatabaseConfig.getConnection();
-            Statement stmt = conn.createStatement();
-            ResultSet res = stmt.executeQuery(query);
-            System.out.println("------------Available Movies------------");
+            String query = """
+                    SELECT DISTINCT m.movie_id, m.title, m.lang, m.genre
+                    FROM movies m
+                    JOIN shows s ON m.movie_id = s.movie_id
+                    JOIN theaters t ON s.theater_id = t.theater_id
+                    WHERE t.city = ?;
+                    """;
 
-            while(res.next()){
-                System.out.println(res.getInt("movie_id") + ". " + res.getString("title") + " (" + res.getString("genre") + ")");
-            }
-
-        } catch(SQLException e){
-            e.printStackTrace();
-        }
-    }
-
-    public void displayTheaters(String city){
-        try{
-            String query = "select * from theaters where city = ?";
             Connection conn = DatabaseConfig.getConnection();
             PreparedStatement stmt = conn.prepareStatement(query);
             stmt.setString(1, city);
             ResultSet res = stmt.executeQuery();
-            if(res == null){
-                System.out.println("No Theaters found in " + city);
-                return;
+
+            if(!res.isBeforeFirst()){
+                System.out.println("No movies available in " + city);
+                return -1;
             }
-            System.out.print("Theaters in " + city + ": ");
-            int i = 1;
-            while(res.next()){
-                System.out.print(i++ + ". " + res.getString("name"));
+            System.out.println("Available Movies");
+
+            System.out.printf("+------+------------------------------+------------+-----------------+\n");
+            System.out.printf("| %-4s | %-28s | %-10s | %-15s |\n", "ID", "Title", "Language", "Genre");
+            System.out.printf("+------+------------------------------+------------+-----------------+\n");
+
+            while (res.next()) {
+                int movieId = res.getInt("movie_id");
+                String title = res.getString("title");
+                String lang = res.getString("lang");
+                String genre = res.getString("genre");
+
+                System.out.printf("| %-4d | %-28s | %-10s | %-15s |\n", movieId, title, lang, genre);
+            }
+
+            System.out.printf("+------+------------------------------+------------+-----------------+\n");
+
+            System.out.println("Choose Movie: ");
+            int movieId = sc.nextInt();
+            return movieId;
+
+        } catch(SQLException e){
+            e.printStackTrace();
+        }
+        return -1;
+    }
+
+    public boolean displayTheaters(String city, int movieId){
+        try{
+            String query = """
+                    SELECT DISTINCT\s
+                        t.theater_id,
+                        t.name AS theater_name,
+                        s.show_timing,
+                        s.available_seats,
+                        m.lang AS movie_language\s
+                    FROM theaters t
+                    JOIN shows s ON t.theater_id = s.theater_id
+                    JOIN movies m ON s.movie_id = m.movie_id
+                    WHERE s.movie_id = ? AND t.city = ?;
+                    """;
+
+            Connection conn = DatabaseConfig.getConnection();
+            PreparedStatement stmt = conn.prepareStatement(query);
+            stmt.setInt(1, movieId);
+            stmt.setString(2, city);
+            ResultSet res = stmt.executeQuery();
+
+            if(!res.isBeforeFirst()){ //no theaters found
+                PreparedStatement st = conn.prepareStatement("select title from movies where movie_id = ?");
+                st.setInt(1, movieId);
+                ResultSet result = st.executeQuery();
+
+                String movieName = "";
+                if(result.next()){
+                    movieName = result.getString("title");
+                }
+                System.out.println("No Theaters found in " + city + " showing " + movieName);
+                return false;
+            }
+
+            System.out.printf("%-20s %-20s %-20s %-18s %-15s\n",
+                    "Theater_No.","Theater", "Show Time", "Available Seats", "Language");
+            System.out.println("--------------------------------------------------------------------------------------------");
+
+            while (res.next()) {
+                String theaterNo = res.getString("theater_id");
+                String theaterName = res.getString("theater_name");
+                String showTiming = res.getString("show_timing");
+                int availableSeats = res.getInt("available_seats");
+                String language = res.getString("movie_language");
+
+                System.out.printf("%-20s %-20s %-20s %-18d %-15s\n",
+                        theaterNo, theaterName, showTiming, availableSeats, language);
             }
 
         } catch (SQLException e) {
             e.printStackTrace();
         }
+        return true;
     }
 
     public void displayShows(int movieId, int theaterId){
@@ -80,6 +142,7 @@ public class BookMyMoviesSystem {
                 stmt.setInt(1, showId);
                 stmt.setString(2, seat);
                 ResultSet res = stmt.executeQuery();
+
                 if(res.next() && res.getBoolean("is_booked")){
                     selectedSeatsAreAvailable = false;
                     System.out.println("seat: " + seat + "is already booked. Choose another seat");
@@ -113,5 +176,9 @@ public class BookMyMoviesSystem {
         } catch (SQLException e) {
             e.printStackTrace();
         }
+    }
+
+    public void cancelBooking(){
+
     }
 }
