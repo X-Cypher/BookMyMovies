@@ -5,11 +5,11 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 
 public class DatabaseConfig {
-    static String url = "jdbc:mysql://localhost:3306/bookmymovies_db";
-    static String username = "root";
-    static String password = "toor";
-
     public static Connection getConnection() throws SQLException {
+        String url = System.getenv("DB_URL");
+        String username = System.getenv("DB_USER");
+        String password = System.getenv("DB_PASSWORD");
+
         return DriverManager.getConnection(url, username, password);
     }
 }
