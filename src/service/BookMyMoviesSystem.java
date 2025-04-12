@@ -9,6 +9,34 @@ import java.util.Scanner;
 public class BookMyMoviesSystem {
     Scanner sc = new Scanner(System.in);
 
+    public void displayUsers(){
+        try{
+            String query = "select * from users";
+            Connection conn = DatabaseConfig.getConnection();
+            Statement stmt = conn.createStatement();
+            ResultSet res = stmt.executeQuery(query);
+            if (!res.isBeforeFirst()) {
+                System.out.println("No users found.");
+                return;
+            }
+
+            System.out.printf("+----------+------------------------+-------------------------------+---------------+\n");
+            System.out.printf("| %-8s | %-22s | %-29s | %-13s |\n", "User ID", "Name", "Email", "Phone");
+            System.out.printf("+----------+------------------------+-------------------------------+---------------+\n");
+            while (res.next()) {
+                int userId = res.getInt("user_id");
+                String name = res.getString("name");
+                String email = res.getString("email");
+                String phone = res.getString("phone");
+
+                System.out.printf("| %-8d | %-22s | %-29s | %-13s |\n", userId, name, email, phone);
+            }
+            System.out.printf("+----------+------------------------+-------------------------------+---------------+\n");
+        } catch (SQLException e){
+            e.printStackTrace();
+        }
+    }
+
     public int displayMovies(String city){
         try{
             String query = """
@@ -16,7 +44,7 @@ public class BookMyMoviesSystem {
                     FROM movies m
                     JOIN shows s ON m.movie_id = s.movie_id
                     JOIN theaters t ON s.theater_id = t.theater_id
-                    WHERE t.city = ?;
+                    WHERE t.city = ? ORDER BY m.movie_id ASC;
                     """;
 
             Connection conn = DatabaseConfig.getConnection();
@@ -120,9 +148,8 @@ public class BookMyMoviesSystem {
             ResultSet res = stmt.executeQuery();
 
             System.out.println("Available Shows: ");
-            int i = 1;
             while (res.next()){
-                System.out.println(i++ + ". " + res.getString("show_timing") + "- total seats available: " + res.getInt("available_seats"));
+                System.out.println(res.getInt("show_id") + ". " + res.getString("show_timing") + "- total seats available: " + res.getInt("available_seats"));
             }
 
         } catch (SQLException e) {
