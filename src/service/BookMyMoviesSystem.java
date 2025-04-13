@@ -280,12 +280,12 @@ public class BookMyMoviesSystem {
             //check if the selectedSeats are available
             boolean selectedSeatsAreAvailable = true;
             for(String seat: selectedSeats){
-                PreparedStatement stmt = conn.prepareStatement("select * from seats where show_id = ? and seat_number = ?");
+                PreparedStatement stmt = conn.prepareStatement("select 1 from seats where show_id = ? and seat_number = ? and is_booked = true");
                 stmt.setInt(1, showId);
                 stmt.setString(2, seat);
                 ResultSet res = stmt.executeQuery();
 
-                if(res.next() && res.getBoolean("is_booked")){
+                if(res.next()){
                     selectedSeatsAreAvailable = false;
                     System.out.println("seat: " + seat + "is already booked. Choose another seat");
                 }
