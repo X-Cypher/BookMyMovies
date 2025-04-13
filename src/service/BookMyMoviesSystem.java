@@ -3,10 +3,7 @@ package service;
 import config.DatabaseConfig;
 
 import java.sql.*;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Scanner;
+import java.util.*;
 
 public class BookMyMoviesSystem {
     Scanner sc = new Scanner(System.in);
@@ -196,7 +193,11 @@ public class BookMyMoviesSystem {
     public HashSet<Integer> displayAvailableSeats(int showId, int theaterId){
         HashSet<Integer> validSeats = new HashSet<>();
         try {
-            String query = "SELECT s.seat_id, s.seat_number FROM seats s JOIN shows ON shows.show_id = s.show_id WHERE s.show_id = ? AND is_booked = 0 AND shows.theater_id = ?";
+            String query = """
+                    SELECT s.seat_id, s.seat_number, s.seat_type \
+                    FROM seats s JOIN shows ON shows.show_id = s.show_id \
+                    WHERE s.show_id = ? AND is_booked = 0 AND shows.theater_id = ?""";
+
             Connection conn = DatabaseConfig.getConnection();
             PreparedStatement stmt = conn.prepareStatement(query);
             stmt.setInt(1, showId);
@@ -209,23 +210,25 @@ public class BookMyMoviesSystem {
             }
 
             System.out.println("Available Seats:");
-            System.out.printf("+----------+--------------+\n");
-            System.out.printf("| %-8s | %-12s |\n", "Seat ID", "Seat Number");
-            System.out.printf("+----------+--------------+\n");
+            System.out.printf("+----------+--------------+-------------+\n");
+            System.out.printf("| %-8s | %-12s | %-11s |\n", "Seat ID", "Seat Number", "Seat Type");
+            System.out.printf("+----------+--------------+-------------+\n");
 
             while (res.next()) {
                 int seatId = res.getInt("seat_id");
                 String seatNumber = res.getString("seat_number");
+                String seatType = res.getString("seat_type");
                 validSeats.add(seatId);
-                System.out.printf("| %-8d | %-12s |\n", seatId, seatNumber);
+                System.out.printf("| %-8d | %-12s | %-11s |\n", seatId, seatNumber, seatType);
             }
 
-            System.out.printf("+----------+--------------+\n");
+            System.out.printf("+----------+--------------+-------------+\n");
 
         } catch (SQLException e) {
             e.printStackTrace();
         }
         return validSeats;
+
     }
 
     public List<Integer> selectSeats(HashSet<Integer> validSeats){
@@ -273,54 +276,185 @@ public class BookMyMoviesSystem {
     }
 
     public void bookTicket(int userId, int showId, List<String> selectedSeats){
-        try{
+        try {
             Connection conn = DatabaseConfig.getConnection();
-            conn.setAutoCommit(false); //transaction pura hoga ya toh bilkul nhi hoga, partial statements execute nhi honge
+            conn.setAutoCommit(false);
 
-            //check if the selectedSeats are available
-            boolean selectedSeatsAreAvailable = true;
-            for(String seat: selectedSeats){
-                PreparedStatement stmt = conn.prepareStatement("select 1 from seats where show_id = ? and seat_number = ? and is_booked = true");
-                stmt.setInt(1, showId);
-                stmt.setString(2, seat);
-                ResultSet res = stmt.executeQuery();
+            boolean allSeatsAvailable = true;
+            double totalPrice = 0.0;
+            List<String> unavailableSeats = new ArrayList<>();
+            List<String> seatTypes = new ArrayList<>();
 
-                if(res.next()){
-                    selectedSeatsAreAvailable = false;
-                    System.out.println("seat: " + seat + "is already booked. Choose another seat");
+            for (String seat : selectedSeats) {
+                PreparedStatement checkStmt = conn.prepareStatement(
+                        "SELECT seat_type, is_booked FROM seats WHERE show_id = ? AND seat_number = ?"
+                );
+                checkStmt.setInt(1, showId);
+                checkStmt.setString(2, seat);
+                ResultSet rs = checkStmt.executeQuery();
+
+                if (rs.next()) {
+                    boolean isBooked = rs.getBoolean("is_booked");
+                    String seatType = rs.getString("seat_type");
+
+                    if (isBooked) {
+                        allSeatsAvailable = false;
+                        unavailableSeats.add(seat);
+                    } else {
+                        seatTypes.add(seatType);
+                    }
+                } else {
+                    allSeatsAvailable = false;
+                    unavailableSeats.add(seat + " (Invalid)");
                 }
             }
 
-            // koi seat pehle se booked hai, toh booking rollback kr do
-            if(!selectedSeatsAreAvailable){
-                System.out.println("Booking failed. Some seats are already Booked");
+            if (!allSeatsAvailable) {
+                System.out.println("Booking failed. These seats are already booked or invalid: " + unavailableSeats);
                 conn.rollback();
                 return;
             }
 
-            for(String seat: selectedSeats){
-                PreparedStatement stmt = conn.prepareStatement("update seats set is_booked = true where show_id = ? and seat_number = ?");
-                stmt.setInt(1, showId);
-                stmt.setString(2, seat);
-                stmt.executeUpdate();
-            }
-            double seatPrice = 200.0;
-            double totalPrice = selectedSeats.size() * seatPrice;
+            // Calculate total price
+            for (String seatType : seatTypes) {
+                PreparedStatement priceStmt = conn.prepareStatement(
+                        "SELECT price FROM seat_pricing WHERE seat_type = ?"
+                );
+                priceStmt.setString(1, seatType);
+                ResultSet rs = priceStmt.executeQuery();
 
-            PreparedStatement stmt = conn.prepareStatement("insert into bookings (user_id, show_id, seats_booked, total_price) values (?,?,?,?)");
-            stmt.setInt(1, userId);
-            stmt.setInt(2, showId);
-            stmt.setString(3, String.join(",", selectedSeats));
-            stmt.setDouble(4, totalPrice);
-            stmt.executeUpdate();
+                if (rs.next()) {
+                    totalPrice += rs.getDouble("price");
+                } else {
+                    System.out.println("No pricing found for seat type: " + seatType);
+                    conn.rollback();
+                    return;
+                }
+            }
+
+            // Update seats as booked
+            for (String seat : selectedSeats) {
+                PreparedStatement updateStmt = conn.prepareStatement(
+                        "UPDATE seats SET is_booked = true WHERE show_id = ? AND seat_number = ?"
+                );
+                updateStmt.setInt(1, showId);
+                updateStmt.setString(2, seat);
+                updateStmt.executeUpdate();
+            }
+
+            // Update shows table: decrease available seats
+            PreparedStatement updateShowStmt = conn.prepareStatement(
+                    "UPDATE shows SET available_seats = available_seats - ? WHERE show_id = ?"
+            );
+            updateShowStmt.setInt(1, selectedSeats.size());
+            updateShowStmt.setInt(2, showId);
+            updateShowStmt.executeUpdate();
+
+            // Insert booking into bookings table
+            PreparedStatement bookingStmt = conn.prepareStatement(
+                    "INSERT INTO bookings (user_id, show_id, seats_booked, total_price) VALUES (?, ?, ?, ?)"
+            );
+            bookingStmt.setInt(1, userId);
+            bookingStmt.setInt(2, showId);
+            bookingStmt.setString(3, String.join(",", selectedSeats));
+            bookingStmt.setDouble(4, totalPrice);
+            bookingStmt.executeUpdate();
+
             conn.commit();
-            System.out.println("Booking Successful, Seats: " + selectedSeats + " | Total Price: " + totalPrice);
+            System.out.println("🎟️ Booking Successful!");
+            System.out.println("Seats: " + selectedSeats + " | Total Price: ₹" + totalPrice);
+
         } catch (SQLException e) {
             e.printStackTrace();
         }
     }
 
-    public void cancelBooking(){
+    public void cancelBooking(int userId){
+        try{
+            String query = """
+                    SELECT b.booking_id, b.seats_booked, b.total_price, b.booking_time, \
+                    s.show_timing, m.title \
+                    FROM bookings b \
+                    JOIN shows s ON b.show_id = s.show_id \
+                    JOIN movies m ON s.movie_id = m.movie_id \
+                    WHERE b.user_id = ? AND b.booking_status = 'confirmed'""";
 
+            Connection conn = DatabaseConfig.getConnection();
+            conn.setAutoCommit(false);
+            PreparedStatement stmt = conn.prepareStatement(query);
+            stmt.setInt(1, userId);
+
+            ResultSet res = stmt.executeQuery();
+            if(!res.isBeforeFirst()){
+                System.out.println("No active bookings for User Id: " + userId);
+                return;
+            }
+
+            System.out.println("\n🎟️  Your Active Bookings:");
+            System.out.printf("+------------+-------------------------+-------------------+---------------------+--------+---------------------+%n");
+            System.out.printf("| Booking ID | Movie Title             | Seats             | Show Time           | Price  | Booking Time        |%n");
+            System.out.printf("+------------+-------------------------+-------------------+---------------------+--------+---------------------+%n");
+
+
+            while(res.next()){
+                int bookingId = res.getInt("booking_id");
+                String title = res.getString("title");
+                String seats = res.getString("seats_booked");
+                String showTime = res.getString("show_timing");
+                double price = res.getDouble("total_price");
+                Timestamp bookingTime = res.getTimestamp("booking_time");
+
+                System.out.printf("| %-10d | %-23s | %-17s | %-19s | %-6.2f | %-19s |%n",
+                        bookingId, title, seats, showTime, price, bookingTime.toString());
+            }
+            System.out.printf("+------------+-------------------------+-------------------+---------------------+--------+---------------------+%n");
+
+            System.out.print("\nEnter the Booking ID to cancel: ");
+            int cancelId = sc.nextInt();
+
+            PreparedStatement cancelBooking = conn.prepareStatement("""
+                    SELECT show_id, seats_booked FROM bookings WHERE booking_id = ? AND user_id = ? AND booking_status = 'confirmed'
+                    """);
+
+            cancelBooking.setInt(1, cancelId);
+            cancelBooking.setInt(2, userId);
+
+            ResultSet rs = cancelBooking.executeQuery();
+            if (!rs.next()) {
+                System.out.println("Invalid Booking ID or Booking already cancelled.");
+                return;
+            }
+
+            int showId = rs.getInt("show_id");
+            String[] seatsArray = rs.getString("seats_booked").split(",");
+
+            for (String seat : seatsArray) {
+                PreparedStatement unbookSeat = conn.prepareStatement(
+                        "UPDATE seats SET is_booked = false WHERE show_id = ? AND seat_number = ?"
+                );
+                unbookSeat.setInt(1, showId);
+                unbookSeat.setString(2, seat);
+                unbookSeat.executeUpdate();
+            }
+
+            PreparedStatement updateShow = conn.prepareStatement(
+                    "UPDATE shows SET available_seats = available_seats + ? WHERE show_id = ?"
+            );
+            updateShow.setInt(1, seatsArray.length);
+            updateShow.setInt(2, showId);
+            updateShow.executeUpdate();
+
+            PreparedStatement result = conn.prepareStatement(
+                    "UPDATE bookings SET booking_status = 'cancelled' WHERE booking_id = ?"
+            );
+            result.setInt(1, cancelId);
+            result.executeUpdate();
+
+            conn.commit();
+            System.out.println("✅ Booking cancelled successfully! Freed seats: " + Arrays.toString(seatsArray));
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
     }
 }

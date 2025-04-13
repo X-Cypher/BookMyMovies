@@ -16,7 +16,7 @@ public class BookMyMovieApp {
         int userId = sc.nextInt();
         sys.authenticateUser(userId);
 
-        System.out.println("Enter 1 to Book. 0 to Cancel Booking");
+        System.out.println("Enter 1 for new Booking. 0 to Cancel Booking");
         int choice = sc.nextInt();
         sc.nextLine();
 
@@ -43,10 +43,11 @@ public class BookMyMovieApp {
             }
 
             System.out.println("Your Selected Seats: " + selectedSeats);
+            System.out.println("Processing...");
             sys.bookTicket(userId, showId, selectedSeats);
 
         } else if(choice == 0){
-            sys.cancelBooking();
+            sys.cancelBooking(userId);
         } else{
             System.out.println("Invalid Selection");
         }
